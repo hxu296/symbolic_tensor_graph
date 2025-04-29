@@ -97,6 +97,12 @@ def _tensor_mem_class(tensor):
         if kw in name:
             return None
 
+    # # Ignore tensors that belong to replicated micro-batches ("mb<i>.") –
+    # # they are private to a given micro-batch and should not contribute
+    # # to the persistent per-GPU footprint accounting.
+    # if name.startswith("mb"):
+    #     return None
+
     # 1) Parameters (persistent weight shards)
     # Note: Only the sharded parameters (require_grads == True) are stored
     # permanently. The full-precision assembled weights have been excluded
@@ -141,9 +147,9 @@ def _weight_and_opt_sizes(tensor, symbol_map, mixed_precision=False):
         weight_bytes = elem_cnt * 4
 
     # Optimizer state bytes (Adam: m & v, fp32): 2 * 4 bytes
-    opt_bytes = elem_cnt * 4 * 2  # multiplier 2 already folded as 4 in original? wait orig used *4 only.
-    # Note: ConvertChakra used *4 ( not *8 ) – but that code path is inconsistent wrt bytes.
-    # For consistency with their total we keep the same (single replica) so /2.
+    # opt_bytes = elem_cnt * 4 * 2  # multiplier 2 already folded as 4 in original? wait orig used *4 only.
+    # # Note: ConvertChakra used *4 ( not *8 ) – but that code path is inconsistent wrt bytes.
+    # # For consistency with their total we keep the same (single replica) so /2.
     opt_bytes = elem_cnt * 4  # to match _create_IOInfo logic
 
     return weight_bytes, opt_bytes
@@ -290,6 +296,14 @@ def main():
         spp: args.sp,
         ep: args.ep,
     }
+
+    if args.weight_sharded:
+        symbol_map_value[fsdp] = args.dp if args.dp != 0 else 1
+        symbol_map_value['fsdp'] = args.dp if args.dp != 0 else 1
+    else:
+        symbol_map_value[fsdp] = 1
+        symbol_map_value['fsdp'] = 1
+
     num_stacks = args.num_stacks
     temporal_parallel_dims = [pp]
 
